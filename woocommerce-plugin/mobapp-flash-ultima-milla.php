@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MOBAPP FLASH - Última Milla
  * Description: Servicio de última milla MOBAPP en CABA y GBA (4 zonas por código postal). Lee tarifas de Google Sheet publicado.
- * Version: 1.0.1
+ * Version: 1.0.2
  * Author: MOBAPP EXPRESS
  */
 
@@ -24,16 +24,30 @@ add_action( 'wp', 'mobapp_flash_setup_schedule' );
 add_action( 'mobapp_flash_daily_event', 'mobapp_flash_refresh_cache' );
 
 function mobapp_flash_refresh_cache() {
-    $settings = get_option( 'woocommerce_mobapp-flash-ultima-milla_settings', [] );
-
-    $url_cp     = isset( $settings['csv_url_cp'] ) ? trim( $settings['csv_url_cp'] ) : '';
-    $url_tarifa = isset( $settings['csv_url_tarifa'] ) ? trim( $settings['csv_url_tarifa'] ) : '';
-
-    if ( $url_cp ) {
-        $csv = mobapp_flash_get_tarifa_csv( 'datos_csv_mobapp_flash_cp', $url_cp );
+    global $wpdb;
+    if ( ! isset( $wpdb ) ) {
+        return;
     }
-    if ( $url_tarifa ) {
-        $csv = mobapp_flash_get_tarifa_csv( 'datos_csv_mobapp_flash_tarifa', $url_tarifa );
+    $rows = $wpdb->get_results(
+        "SELECT instance_id FROM {$wpdb->prefix}woocommerce_shipping_zone_methods WHERE method_id = 'mobapp-flash-ultima-milla' AND is_enabled = 1"
+    );
+    if ( empty( $rows ) ) {
+        return;
+    }
+    foreach ( $rows as $row ) {
+        $opt_key  = 'woocommerce_mobapp-flash-ultima-milla_' . absint( $row->instance_id ) . '_settings';
+        $settings = get_option( $opt_key, [] );
+        if ( ! is_array( $settings ) ) {
+            continue;
+        }
+        $url_cp     = mobapp_flash_normalize_url( isset( $settings['csv_url_cp'] ) ? $settings['csv_url_cp'] : '' );
+        $url_tarifa = mobapp_flash_normalize_url( isset( $settings['csv_url_tarifa'] ) ? $settings['csv_url_tarifa'] : '' );
+        if ( $url_cp ) {
+            mobapp_flash_get_tarifa_csv( 'datos_csv_mobapp_flash_cp', $url_cp );
+        }
+        if ( $url_tarifa ) {
+            mobapp_flash_get_tarifa_csv( 'datos_csv_mobapp_flash_tarifa', $url_tarifa );
+        }
     }
 }
 
@@ -54,6 +68,8 @@ function mobapp_flash_file_get_contents_curl( $url ) {
     curl_setopt( $ch, CURLOPT_RETURNTRANSFER, 1 );
     curl_setopt( $ch, CURLOPT_FOLLOWLOCATION, true );
     curl_setopt( $ch, CURLOPT_TIMEOUT, 15 );
+    curl_setopt( $ch, CURLOPT_SSL_VERIFYPEER, true );
+    curl_setopt( $ch, CURLOPT_SSL_VERIFYHOST, 2 );
     $data = curl_exec( $ch );
     curl_close( $ch );
     return $data;
@@ -68,6 +84,27 @@ function mobapp_flash_get_tarifa_csv( $transient, $url ) {
         }
     }
     return $csv;
+}
+
+/**
+ * Normaliza una URL decodificando entidades HTML que WooCommerce/WP
+ * pudieron haber introducido al guardar (ej. &amp; → &).
+ * Aplica html_entity_decode múltiples veces por si quedó doblemente escapado.
+ */
+function mobapp_flash_normalize_url( $url ) {
+    if ( empty( $url ) ) {
+        return '';
+    }
+    $url = trim( (string) $url );
+    // 3 pasadas para casos de doble/triple escape
+    for ( $i = 0; $i < 3; $i++ ) {
+        $decoded = html_entity_decode( $url, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        if ( $decoded === $url ) {
+            break;
+        }
+        $url = $decoded;
+    }
+    return $url;
 }
 
 // ─────────────────────────────────────────
@@ -170,17 +207,17 @@ function mobapp_flash_shipping_init() {
                 ],
                 'csv_url_cp' => [
                     'title'       => 'URL CSV — Hoja de CPs',
-                    'type'        => 'textarea',
+                    'type'        => 'text',
                     'description' => 'URL de la hoja <strong>MOBAPP FLASH CP</strong> publicada como CSV.<br>Cómo obtenerla: Archivo → Compartir → Publicar en la web → seleccionar hoja → seleccionar formato CSV → Publicar → copiar URL.',
                     'default'     => '',
-                    'css'         => 'width:100%; height:60px;',
+                    'css'         => 'width:100%;',
                 ],
                 'csv_url_tarifa' => [
                     'title'       => 'URL CSV — Hoja de Tarifas',
-                    'type'        => 'textarea',
+                    'type'        => 'text',
                     'description' => 'URL de la hoja <strong>MOBAPP FLASH TARIFA</strong> publicada como CSV.<br>Mismo procedimiento que para CPs.',
                     'default'     => '',
-                    'css'         => 'width:100%; height:60px;',
+                    'css'         => 'width:100%;',
                 ],
                 'costo_embalaje' => [
                     'title'       => 'Costo de embalaje (ARS)',
@@ -248,6 +285,14 @@ function mobapp_flash_shipping_init() {
             return $options;
         }
 
+        public function validate_csv_url_cp_field( $key, $value ) {
+            return esc_url_raw( mobapp_flash_normalize_url( $value ) );
+        }
+
+        public function validate_csv_url_tarifa_field( $key, $value ) {
+            return esc_url_raw( mobapp_flash_normalize_url( $value ) );
+        }
+
         /**
          * Forzar recarga de tarifas vía botón en el admin.
          */
@@ -290,8 +335,8 @@ function mobapp_flash_shipping_init() {
             }
 
             // Obtener settings
-            $url_cp     = trim( $this->get_option( 'csv_url_cp', '' ) );
-            $url_tarifa = trim( $this->get_option( 'csv_url_tarifa', '' ) );
+            $url_cp     = mobapp_flash_normalize_url( $this->get_option( 'csv_url_cp', '' ) );
+            $url_tarifa = mobapp_flash_normalize_url( $this->get_option( 'csv_url_tarifa', '' ) );
 
             if ( empty( $url_cp ) || empty( $url_tarifa ) ) {
                 // URLs no configuradas, no ofrecer rate
@@ -321,6 +366,7 @@ function mobapp_flash_shipping_init() {
             if ( ! $csv_cp ) {
                 return;
             }
+            $csv_cp = ltrim( $csv_cp, "\xEF\xBB\xBF" );
 
             $zona = null;
             $lineas_cp = array_filter( explode( "\n", $csv_cp ) );
@@ -335,7 +381,9 @@ function mobapp_flash_shipping_init() {
                 if ( ! isset( $cols[0] ) ) {
                     continue;
                 }
-                if ( trim( $cols[0] ) === $cp ) {
+                $cp_csv = preg_replace( '/\D/', '', (string) $cols[0] );
+                $cp_csv = str_pad( $cp_csv, 4, '0', STR_PAD_LEFT );
+                if ( $cp_csv === $cp ) {
                     $zona = isset( $cols[1] ) ? trim( $cols[1] ) : null;
                     break;
                 }
@@ -351,6 +399,7 @@ function mobapp_flash_shipping_init() {
             if ( ! $csv_tarifa ) {
                 return;
             }
+            $csv_tarifa = ltrim( $csv_tarifa, "\xEF\xBB\xBF" );
 
             $titulo     = null;
             $base_cost  = null;
@@ -395,7 +444,7 @@ function mobapp_flash_shipping_init() {
 
             // 7. Agregar rate
             $this->add_rate( [
-                'id'    => $this->id,
+                'id'    => $this->id . ':' . $this->instance_id,
                 'label' => $titulo,
                 'cost'  => $total_cost,
             ] );
@@ -403,4 +452,4 @@ function mobapp_flash_shipping_init() {
     }
 }
 
-// 1.0.1: evita recursión fatal al cargar zonas de envío y usa un campo compatible para forzar recarga.
+// 1.0.2: arregla bug de URL con &amp; (entidad HTML); valida y normaliza al guardar y al leer; cron lee instance_ids reales; soporta BOM UTF-8; SSL peer verification activa.
