@@ -214,7 +214,7 @@ function mobapp_flash_shipping_init() {
             $this->instance_form_fields['force_reload_info'] = [
                 'title'       => 'Forzar recarga de tarifas',
                 'type'        => 'text',
-                'description' => 'Para forzar recarga inmediata desde Google Sheets, abrir este link en una nueva pestaña:<br><a target="_blank" href="' . $force_reload_url . '">🔄 Forzar recarga ahora</a><p class="description">Borra la caché local y vuelve a descargar los CSVs desde Google Sheets inmediatamente.</p>',
+                'description' => 'Para forzar recarga inmediata desde Google Sheets, abrir este link en una nueva pestaña:<br><a target="_blank" rel="noopener noreferrer" href="' . $force_reload_url . '">🔄 Forzar recarga ahora</a><p class="description">Borra la caché local y vuelve a descargar los CSVs desde Google Sheets inmediatamente.</p>',
                 'custom_attributes' => [
                     'readonly' => 'readonly',
                     'style'    => 'display:none;',
@@ -230,7 +230,7 @@ function mobapp_flash_shipping_init() {
                 return $options;
             }
 
-            $table_name = esc_sql( $wpdb->prefix . 'woocommerce_shipping_zones' );
+            $table_name = $wpdb->prefix . 'woocommerce_shipping_zones';
             $rows       = $wpdb->get_results(
                 "SELECT zone_id, zone_name FROM {$table_name} ORDER BY zone_order ASC"
             );
