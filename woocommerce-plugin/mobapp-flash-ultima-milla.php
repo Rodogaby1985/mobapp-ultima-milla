@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MOBAPP FLASH - Última Milla
  * Description: Servicio de última milla MOBAPP en CABA y GBA (4 zonas por código postal). Lee tarifas de Google Sheet publicado.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: MOBAPP EXPRESS
  */
 
@@ -111,6 +111,10 @@ function mobapp_flash_register_shipping_method( $methods ) {
 add_action( 'woocommerce_shipping_init', 'mobapp_flash_shipping_init' );
 
 function mobapp_flash_shipping_init() {
+    if ( ! class_exists( 'WC_Shipping_Method' ) ) {
+        return;
+    }
+
     if ( class_exists( 'WC_MOBAPP_FLASH_ULTIMA_MILLA' ) ) {
         return;
     }
@@ -143,6 +147,13 @@ function mobapp_flash_shipping_init() {
         }
 
         public function init_form_fields() {
+            $force_reload_url = esc_url(
+                wp_nonce_url(
+                    admin_url( 'admin.php?page=wc-settings&tab=shipping&mobapp_flash_force_reload=1' ),
+                    'mobapp_flash_force_reload'
+                )
+            );
+
             $this->instance_form_fields = [
                 'enabled' => [
                     'title'   => 'Habilitar',
@@ -200,19 +211,37 @@ function mobapp_flash_shipping_init() {
                 'desc_tip'    => false,
             ];
 
-            $this->instance_form_fields['force_reload_button'] = [
+            $this->instance_form_fields['force_reload_info'] = [
                 'title'       => 'Forzar recarga de tarifas',
-                'type'        => 'title',
-                'description' => '<a href="' . esc_url( wp_nonce_url( admin_url( 'admin.php?page=wc-settings&tab=shipping&section=mobapp-flash-ultima-milla&mobapp_flash_force_reload=1' ), 'mobapp_flash_force_reload' ) ) . '" class="button button-secondary">🔄 Forzar recarga ahora</a><p class="description">Borra la caché local y vuelve a descargar los CSVs desde Google Sheets inmediatamente.</p>',
+                'type'        => 'text',
+                'description' => 'Para forzar recarga inmediata desde Google Sheets, abrir este link en una nueva pestaña:<br><a target="_blank" href="' . $force_reload_url . '">🔄 Forzar recarga ahora</a><p class="description">Borra la caché local y vuelve a descargar los CSVs desde Google Sheets inmediatamente.</p>',
+                'default'     => '',
+                'custom_attributes' => [
+                    'readonly' => 'readonly',
+                    'style'    => 'display:none;',
+                ],
             ];
         }
 
         private function get_wc_zones_options() {
-            $zones = WC_Shipping_Zones::get_zones();
-            $options = [ '0' => 'Zona sin nombre (resto del mundo)' ];
-            foreach ( $zones as $zone ) {
-                $options[ $zone['zone_id'] ] = $zone['zone_name'];
+            global $wpdb;
+
+            $options = [];
+            if ( ! function_exists( 'WC' ) || ! isset( $wpdb ) ) {
+                return $options;
             }
+
+            $table_name = $wpdb->prefix . 'woocommerce_shipping_zones';
+            $rows       = $wpdb->get_results(
+                "SELECT zone_id, zone_name FROM {$table_name} ORDER BY zone_order ASC"
+            );
+
+            if ( ! empty( $rows ) ) {
+                foreach ( $rows as $row ) {
+                    $options[ (string) $row->zone_id ] = $row->zone_name;
+                }
+            }
+
             return $options;
         }
 
@@ -371,3 +400,4 @@ function mobapp_flash_shipping_init() {
     }
 }
 
+// 1.0.1: evita recursión fatal al cargar zonas de envío y usa un campo compatible para forzar recarga.
