@@ -95,7 +95,7 @@ ya que `0 > 0` es `false`. Para cubrir pesos 0 kg, usá `PESO_MIN=-1` y `PESO_MA
 == Changelog ==
 
 = 1.0.1 =
-* Evita la recursión fatal al cargar `ocultar_para_zonas` consultando las zonas por SQL en lugar de instanciar métodos de envío.
+* Evita la recursión fatal al cargar el selector de zonas ocultas consultando las zonas por SQL en lugar de instanciar métodos de envío.
 * Reemplaza el campo de recarga manual por uno compatible con `instance_form_fields`.
 * Hace defensiva la inicialización del método si WooCommerce todavía no cargó `WC_Shipping_Method`.
 

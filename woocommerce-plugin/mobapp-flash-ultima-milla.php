@@ -230,6 +230,10 @@ function mobapp_flash_shipping_init() {
                 return $options;
             }
 
+            if ( ! preg_match( '/^[A-Za-z0-9_]+$/', $wpdb->prefix ) ) {
+                return $options;
+            }
+
             $table_name = $wpdb->prefix . 'woocommerce_shipping_zones';
             $rows       = $wpdb->get_results(
                 "SELECT zone_id, zone_name FROM {$table_name} ORDER BY zone_order ASC"
@@ -241,7 +245,7 @@ function mobapp_flash_shipping_init() {
 
             if ( ! empty( $rows ) ) {
                 foreach ( $rows as $row ) {
-                    $options[ (string) $row->zone_id ] = $row->zone_name;
+                    $options[ (string) $row->zone_id ] = esc_html( $row->zone_name );
                 }
             }
 
