@@ -3,7 +3,7 @@ Contributors: mobappexpress
 Tags: woocommerce, shipping, ultima milla, flash, envios
 Requires at least: 5.8
 Tested up to: 6.5
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 
 Servicio de última milla MOBAPP en CABA y GBA (4 zonas por código postal). Lee tarifas de Google Sheet publicado como CSV.
@@ -93,6 +93,11 @@ ya que `0 > 0` es `false`. Para cubrir pesos 0 kg, usá `PESO_MIN=-1` y `PESO_MA
 - Los transients de WP usan nombres únicos: `datos_csv_mobapp_flash_cp` y `datos_csv_mobapp_flash_tarifa`.
 
 == Changelog ==
+
+= 1.0.1 =
+* Evita la recursión fatal al cargar `ocultar_para_zonas` consultando las zonas por SQL en lugar de instanciar métodos de envío.
+* Reemplaza el campo de recarga manual por uno compatible con `instance_form_fields`.
+* Hace defensiva la inicialización del método si WooCommerce todavía no cargó `WC_Shipping_Method`.
 
 = 1.0.0 =
 * Versión inicial con soporte para 4 zonas (CABA, 1ER CORDON, 2DO CORDON, 3ER CORDON).
