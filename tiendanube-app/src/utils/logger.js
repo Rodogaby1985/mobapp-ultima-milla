@@ -1,17 +1,15 @@
-// src/utils/logger.js
+'use strict';
 const winston = require('winston');
 
 const logger = winston.createLogger({
-  level: 'info',
+  level: process.env.LOG_LEVEL || 'info',
   format: winston.format.combine(
     winston.format.timestamp(),
-    winston.format.printf(
-      info => `${info.timestamp} - ${info.level.toUpperCase()} - ${info.message}`
+    winston.format.printf(({ timestamp, level, message }) =>
+      `${timestamp} [${level.toUpperCase()}] ${message}`
     )
   ),
-  transports: [
-    new winston.transports.Console(),
-  ],
+  transports: [new winston.transports.Console()],
 });
 
 module.exports = logger;
