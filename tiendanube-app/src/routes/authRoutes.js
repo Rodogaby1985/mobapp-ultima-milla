@@ -29,6 +29,11 @@ router.get('/install', (req, res) => {
     });
 
     const finalUrl = `https://www.tiendanube.com/apps/${config.tiendaNube.clientId}/authorize?${params.toString()}`;
+
+    logger.info(`[FLASH /install] publicApiUrl=${config.publicApiUrl}`);
+    logger.info(`[FLASH /install] clientId=${config.tiendaNube.clientId}`);
+    logger.info(`[FLASH /install] finalUrl=${finalUrl}`);
+
     res.redirect(finalUrl);
   });
 });

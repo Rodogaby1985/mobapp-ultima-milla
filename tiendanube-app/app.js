@@ -38,7 +38,7 @@ app.use(
     store: redisStore,
     secret: config.sessionSecret,
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,
     cookie: {
       secure: true,
       httpOnly: true,
