@@ -5,7 +5,7 @@ const { TIENDA_NUBE_API_BASE_URL, TIENDA_NUBE_API_VERSION } = require('../utils/
 
 const registerShippingCarrier = async (storeId, accessToken, publicApiUrl, carrierName) => {
   const headers = {
-    Authorization: `bearer ${accessToken}`,
+    Authentication: `bearer ${accessToken}`,
     'Content-Type': 'application/json',
     'User-Agent': `TiendaNubeShippingApp/${process.env.APP_ID}`,
   };
@@ -46,7 +46,7 @@ const registerShippingCarrier = async (storeId, accessToken, publicApiUrl, carri
 
 const createCarrierOption = async (storeId, accessToken, carrierId, optionData) => {
   const headers = {
-    Authorization: `bearer ${accessToken}`,
+    Authentication: `bearer ${accessToken}`,
     'Content-Type': 'application/json',
     'User-Agent': `TiendaNubeShippingApp/${process.env.APP_ID}`,
   };
