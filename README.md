@@ -567,3 +567,72 @@ dokku ps:restart flash
 ```
 
 porque la caché no se refresca automáticamente.
+
+# Deployment de MOBAPP FLASH en Dokku
+
+## Configuración inicial del servidor (una sola vez por app)
+
+```bash
+# 1. Crear la app
+dokku apps:create flash
+
+# 2. Configurar dominio
+dokku domains:add flash flash.mobappexpress.com
+
+# 3. ⚠️ IMPORTANTE: configurar puertos correctamente
+#    Sin esto, nginx escucha en el puerto 3000 con SSL en vez de 443,
+#    y el dominio cae en otro vhost por defecto.
+dokku ports:add flash http:80:3000 https:443:3000
+
+# 4. Variables de entorno (ajustar valores)
+dokku config:set flash \
+  APP_ID=32545 \
+  CLIENT_SECRET=xxxxx \
+  MODALIDAD=flash \
+  GOOGLE_SHEET_ID=xxxxx \
+  SESSION_SECRET=xxxxx \
+  PUBLIC_API_URL=https://flash.mobappexpress.com
+
+# 5. Plugin de Redis (para sesiones)
+dokku redis:create flash-sessions
+dokku redis:link flash-sessions flash
+
+# 6. Certificado SSL Let's Encrypt
+dokku letsencrypt:set --global email tu-email@dominio.com
+dokku letsencrypt:enable flash
+dokku letsencrypt:cron-job --add
+
+# 7. Regenerar nginx (por las dudas)
+dokku proxy:build-config flash
+systemctl reload nginx
+```
+
+## Verificación post-deploy
+
+```bash
+dokku ports:report flash        # Debe mostrar: http:80:3000 https:443:3000
+dokku domains:report flash      # Debe mostrar: flash.mobappexpress.com
+curl -ksI https://flash.mobappexpress.com/install | grep -i location
+# Debe mostrar: location: https://www.tiendanube.com/apps/32545/authorize?...
+```
+
+## Deploy de cambios desde GitHub
+
+```bash
+# En tu PC (una sola vez):
+git remote add dokku dokku@147.79.86.6:flash
+
+# Cada vez que querés deployar:
+git checkout main
+git pull origin main
+git push dokku main
+```
+
+## Troubleshooting común
+
+### Síntoma: el dominio devuelve el certificado/contenido de otra app
+Probablemente `dokku ports:report flash` está vacío o mal. Reaplicar paso 3.
+
+### Síntoma: 401 "Invalid access token" al instalar
+La API de Tienda Nube usa el header `Authentication` (no `Authorization`).
+Ver: https://dev.tiendanube.com/docs/applications/authentication
