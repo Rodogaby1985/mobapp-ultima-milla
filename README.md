@@ -1,117 +1,162 @@
-# mobapp-ultima-milla
-# URLs publicadas del Google Sheet — MOBAPP FLASH
+# MOBAPP - Última Milla
 
-Estas son las URLs CSV **públicas** de las 2 hojas del Sheet maestro `1rlMBJAjV6FwhesW8y2SUX43ogQeqLw8QKIbbDEirTfg` (`Tarifarios Logísticos - Multi-Tienda`).
-
-Se obtienen con `Archivo → Compartir → Publicar en la web → seleccionar hoja → CSV → Publicar`.
+Sistema multi-plataforma para cotización de envíos de última milla (CABA + GBA) integrado con **Tienda Nube** y **WooCommerce**, alimentado por una planilla maestra de Google Sheets.
 
 ---
 
-## 📋 URLs a copiar en el plugin WooCommerce
+## 📦 Componentes del repositorio
 
-| Campo del panel | URL |
-|---|---|
-| **CSV URL — Tarifas** (hoja `MOBAPP FLASH TARIFA`) | `https://docs.google.com/spreadsheets/d/e/2PACX-1vR10pelt-jk2dKh38-ar_pgGsXo2fADUjHOMkBK7jt3uV8Y-zQJSRGcaZSk3S_kL6GP33IAw6Mjd3LA/pub?gid=1451646784&single=true&output=csv` |
-| **CSV URL — CPs** (hoja `MOBAPP FLASH CP`) | `https://docs.google.com/spreadsheets/d/e/2PACX-1vR10pelt-jk2dKh38-ar_pgGsXo2fADUjHOMkBK7jt3uV8Y-zQJSRGcaZSk3S_kL6GP33IAw6Mjd3LA/pub?gid=1928763953&single=true&output=csv` |
+| Carpeta | Plataforma | Descripción |
+|---|---|---|
+| `tiendanube-app/` | Tienda Nube | App Node.js/Express deployada en Dokku que expone el endpoint OAuth + `/api/shipping_rates` que Tienda Nube consulta en cada checkout. |
+| `woocommerce-plugin/` | WooCommerce | Plugin PHP que se instala en WP-Admin y agrega el método de envío "MOBAPP FLASH - Última Milla". |
 
-> El plugin Woo se configura desde **WP-Admin → WooCommerce → Ajustes → Envíos → [zona] → agregar método "MOBAPP FLASH - Última Milla"** y pegar estas 2 URLs en sus respectivos campos.
+Ambos componentes leen los mismos datos (CPs + tarifas) del Sheet maestro **`1rlMBJAjV6FwhesW8y2SUX43ogQeqLw8QKIbbDEirTfg`** (`Tarifarios Logísticos - Multi-Tienda`), pero por mecanismos distintos:
 
----
-
-## 🔵 Para Tienda Nube — NO se usan estas URLs
-
-La app de Tienda Nube (`tiendanube-app/`) lee el Sheet directamente con la **service account de Google Cloud** ya autorizada como **Editor** en el Sheet:
-
-- `mobapp-tienda-nube-v2@mobapp-tienda-nube-v2.iam.gserviceaccount.com`
-
-La app usa el `GOOGLE_SHEET_ID` (`1rlMBJAjV6FwhesW8y2SUX43ogQeqLw8QKIbbDEirTfg`) y la credencial JSON inyectada via la env var `GCP_CREDENTIALS_JSON` en Dokku. Esto es más robusto y no depende del cache de "Publicar en la web" de Google (que tarda hasta 5 min en refrescar).
+- **Tienda Nube** → lee con la **service account de Google Cloud** (`mobapp-tienda-nube-v2@mobapp-tienda-nube-v2.iam.gserviceaccount.com`), credencial JSON inyectada via env var `GCP_CREDENTIALS_JSON`.
+- **WooCommerce** → lee 2 URLs CSV **publicadas** del Sheet (ver tabla más abajo).
 
 ---
 
-## ⚠️ Notas importantes
+## 🗂️ Índice
 
-1. **Verificá que las URLs respondan CSV en incógnito**: abrilas en una pestaña privada del navegador. Tenés que ver el CSV crudo, sin pedido de login. Si te pide login → la hoja no está publicada correctamente.
-
-2. **Latencia de actualización (Woo)**:
-   - Cuando editás precios en la planilla, **Google tarda hasta ~5 minutos** en actualizar el CSV publicado.
-   - Adicionalmente, el plugin Woo cachea el CSV durante **1 día** (`DAY_IN_SECONDS`) en un transient de WordPress.
-   - Para forzar refresh inmediato: borrar los transients `datos_csv_mobapp_flash_cp` y `datos_csv_mobapp_flash_tarifa` (vía un plugin tipo *Transients Manager* o WP-CLI), o esperar al próximo ciclo del cron horario.
-
-3. **Latencia de actualización (Tienda Nube)**:
-   - La app TN carga el Sheet **una sola vez al arrancar** y lo mantiene en memoria.
-   - Para refrescar precios: `dokku ps:restart flash` en el servidor.
-
-4. **Si rotás el Sheet** o re-publicás las hojas, las URLs CAMBIAN (cambia el token después de `/e/`). En ese caso, actualizar:
-   - Este archivo
-   - El campo de configuración en WooCommerce → Envíos
-# MOBAPP FLASH - Guía de actualización y comprobaciones
-
-## Objetivo
-Esta guía sirve para:
-
-- actualizar/redeployar la app `flash`
-- reiniciar la caché
-- verificar que Google Sheets cargó correctamente
-- probar el endpoint de cotización
-- confirmar que el dominio y SSL están bien
-- validar antes y después de instalar en Tiendanube
+1. [Datos importantes](#1-datos-importantes)
+2. [URLs CSV para el plugin WooCommerce](#2-urls-csv-para-el-plugin-woocommerce)
+3. [Setup inicial del servidor Dokku (una sola vez)](#3-setup-inicial-del-servidor-dokku-una-sola-vez)
+4. [Deploy de cambios desde GitHub](#4-deploy-de-cambios-desde-github)
+5. [Reinicio rápido y caché](#5-reinicio-rápido-y-caché)
+6. [Verificaciones post-deploy](#6-verificaciones-post-deploy)
+7. [Verificar SSL y dominio](#7-verificar-ssl-y-dominio)
+8. [Verificar carga interna de caché](#8-verificar-carga-interna-de-caché)
+9. [Verificar cálculo interno de tarifa](#9-verificar-cálculo-interno-de-tarifa)
+10. [Probar endpoint público](#10-probar-endpoint-público)
+11. [Casos de prueba recomendados](#11-casos-de-prueba-recomendados)
+12. [Qué hacer si devuelve `rates: []`](#12-qué-hacer-si-devuelve-rates-)
+13. [Troubleshooting](#13-troubleshooting)
+14. [Notas importantes sobre actualización de tarifas](#14-notas-importantes-sobre-actualización-de-tarifas)
+15. [Estado esperado para considerar OK](#15-estado-esperado-para-considerar-ok)
+16. [Comandos útiles resumidos](#16-comandos-útiles-resumidos)
 
 ---
 
-# 1. Datos importantes
+## 1. Datos importantes
 
-## App Dokku
-- App: `flash`
+### App Dokku
+- **Nombre:** `flash`
+- **Dominio público:** https://flash.mobappexpress.com
+- **Servidor:** `dokku@147.79.86.6`
 
-## Dominio público
-- `https://flash.mobappexpress.com`
+### Endpoints
+- `GET /health` — health check
+- `GET /install` — inicio del flujo OAuth de instalación
+- `GET /oauth_callback` — callback OAuth de Tienda Nube
+- `POST /api/shipping_rates` — endpoint que consume Tienda Nube en cada checkout
 
-## Endpoint de health
-- `GET /health`
+### Google Sheet
+- **ID:** `1rlMBJAjV6FwhesW8y2SUX43ogQeqLw8QKIbbDEirTfg`
+- **Hojas usadas:**
+  - `MOBAPP FLASH CP` (códigos postales → zona)
+  - `MOBAPP FLASH TARIFA` (precios por zona/tramo)
 
-## Endpoint de cotización
-- `POST /api/shipping_rates`
-
-## Hojas usadas
-- `MOBAPP FLASH CP`
-- `MOBAPP FLASH TARIFA`
-
----
-
-# 2. Cuándo usar esta guía
-
-Usar esta guía cuando:
-
-- se hizo un deploy nuevo
-- se cambió código
-- se modificó la planilla de Google Sheets
-- se quiere validar que Tiendanube va a recibir tarifas
-- se quiere revisar que el SSL siga correcto
-- la app devuelve `rates: []` y se necesita diagnosticar
+### Tienda Nube App
+- **APP_ID / client_id:** `32545`
 
 ---
 
-# 3. Reinicio rápido de la app
+## 2. URLs CSV para el plugin WooCommerce
 
-> Importante: la caché de Google Sheets se carga al iniciar la app.
-> Si se cambia la planilla, hay que reiniciar.
+Estas son las URLs CSV **públicas** del Sheet maestro. Se obtienen con `Archivo → Compartir → Publicar en la web → seleccionar hoja → CSV → Publicar`.
+
+| Campo del panel | Hoja | URL |
+|---|---|---|
+| **CSV URL — Tarifas** | `MOBAPP FLASH TARIFA` | `https://docs.google.com/spreadsheets/d/e/2PACX-1vR10pelt-jk2dKh38-ar_pgGsXo2fADUjHOMkBK7jt3uV8Y-zQJSRGcaZSk3S_kL6GP33IAw6Mjd3LA/pub?gid=14...&output=csv` |
+| **CSV URL — CPs** | `MOBAPP FLASH CP` | `https://docs.google.com/spreadsheets/d/e/2PACX-1vR10pelt-jk2dKh38-ar_pgGsXo2fADUjHOMkBK7jt3uV8Y-zQJSRGcaZSk3S_kL6GP33IAw6Mjd3LA/pub?gid=1928763953&output=csv` |
+
+> Configuración: **WP-Admin → WooCommerce → Ajustes → Envíos → [zona] → agregar método "MOBAPP FLASH - Última Milla"** y pegar las 2 URLs en sus respectivos campos.
+
+### ⚠️ Notas WooCommerce
+
+- **Verificá las URLs en incógnito**: deben devolver CSV crudo sin pedir login. Si pide login, la hoja no está bien publicada.
+- **Latencia de actualización:**
+  - Google tarda hasta ~5 min en actualizar el CSV publicado tras editar.
+  - El plugin cachea el CSV durante **1 día** (`DAY_IN_SECONDS`) en transients de WordPress.
+  - Para forzar refresh inmediato: borrar los transients `datos_csv_mobapp_flash_cp` y `datos_csv_mobapp_flash_tarifa` (vía *Transients Manager* o WP-CLI).
+- **Si rotás el Sheet o re-publicás**, las URLs CAMBIAN (cambia el token después de `/e/`). En ese caso, actualizar:
+  - Este README
+  - El campo de configuración en WooCommerce
+
+---
+
+## 3. Setup inicial del servidor Dokku (una sola vez)
 
 ```bash
-dokku ps:restart flash
+# 1. Crear la app
+dokku apps:create flash
+
+# 2. Configurar dominio
+dokku domains:add flash flash.mobappexpress.com
+
+# 3. ⚠️ IMPORTANTE: configurar puertos correctamente
+#    Sin esto, nginx escucha en el puerto 3000 con SSL en vez de 443,
+#    y el dominio cae en otro vhost por defecto.
+dokku ports:add flash http:80:3000 https:443:3000
+
+# 4. Variables de entorno (ajustar valores reales)
+dokku config:set flash \
+  APP_ID=32545 \
+  CLIENT_SECRET=xxxxx \
+  MODALIDAD=flash \
+  GOOGLE_SHEET_ID=1rlMBJAjV6FwhesW8y2SUX43ogQeqLw8QKIbbDEirTfg \
+  SESSION_SECRET=xxxxx \
+  PUBLIC_API_URL=https://flash.mobappexpress.com \
+  GCP_CREDENTIALS_JSON='{"type":"service_account",...}'
+
+# 5. Plugin de Redis (para sesiones OAuth)
+dokku redis:create flash-sessions
+dokku redis:link flash-sessions flash
+
+# 6. Certificado SSL Let's Encrypt
+dokku letsencrypt:set --global email tu-email@dominio.com
+dokku letsencrypt:enable flash
+dokku letsencrypt:cron-job --add
+
+# 7. Regenerar nginx (por las dudas)
+dokku proxy:build-config flash
+systemctl reload nginx
 ```
 
 ---
 
-# 4. Ver logs al reiniciar
+## 4. Deploy de cambios desde GitHub
 
-Después del restart, revisar:
+```bash
+# En tu PC (una sola vez):
+git remote add dokku dokku@147.79.86.6:flash
+
+# Cada vez que querés deployar:
+git checkout main
+git pull origin main
+git push dokku main
+```
+
+Tras el push, Dokku construye la imagen Docker y la promueve automáticamente. Verificar con:
 
 ```bash
 dokku logs flash -t
 ```
 
-## Lo esperado en logs
-Deberían aparecer líneas como estas:
+---
+
+## 5. Reinicio rápido y caché
+
+> ⚠️ La caché de Google Sheets se carga **una sola vez al iniciar** la app. No se refresca automáticamente.
+> Si cambiás precios o CPs en la planilla, hay que reiniciar.
+
+```bash
+dokku ps:restart flash
+```
+
+### Logs esperados al arrancar
 
 ```text
 [INFO] Iniciando carga de la caché de Google Sheets...
@@ -123,102 +168,71 @@ Deberían aparecer líneas como estas:
 [INFO] PUBLIC_API_URL: https://flash.mobappexpress.com
 ```
 
-## Si no aparece eso
-Hay que revisar:
-- variables de entorno
-- acceso a Google Sheets
-- credenciales
-- errores de arranque
+Si no aparece eso, revisar:
+- variables de entorno (`dokku config:show flash`)
+- credenciales `GCP_CREDENTIALS_JSON`
+- permisos de la service account en el Sheet (debe ser Editor)
 
 ---
 
-# 5. Health check público
-
-Probar que la app responda públicamente:
+## 6. Verificaciones post-deploy
 
 ```bash
-curl -vk https://flash.mobappexpress.com/health
-```
+dokku ports:report flash        # Debe mostrar: http:80:3000 https:443:3000
+dokku domains:report flash      # Debe mostrar: flash.mobappexpress.com
+dokku ps:report flash           # Debe mostrar: running
 
-## Resultado esperado
-```text
-HTTP/2 200
-OK
+# Health check público
+curl -vk https://flash.mobappexpress.com/health
+# Esperado: HTTP/2 200 + body "OK"
+
+# Verificar que /install redirige al client_id correcto
+curl -ksI https://flash.mobappexpress.com/install | grep -i location
+# Esperado: location: https://www.tiendanube.com/apps/32545/authorize?...
 ```
 
 ---
 
-# 6. Verificar SSL del dominio
+## 7. Verificar SSL y dominio
 
-## Reporte Dokku
+### Reporte Dokku
 ```bash
 dokku certs:report flash
 ```
 
-## Resultado esperado
+Esperado:
 - `Ssl enabled: true`
 - `Ssl hostnames: flash.mobappexpress.com`
 - `Ssl verified: verified by a certificate authority`
 
-## Inspección manual del certificado
+### Inspección manual del certificado
 ```bash
 openssl x509 -in /home/dokku/flash/tls/server.crt -noout -subject -issuer -dates -ext subjectAltName
 ```
 
-## Resultado esperado
-Debe incluir:
-
+Esperado:
 ```text
 subject=CN = flash.mobappexpress.com
 DNS:flash.mobappexpress.com
 ```
 
----
-
-# 7. Verificar dominio, proceso y proxy
-
-## Dominio de la app
-```bash
-dokku domains:report flash
-```
-
-## Proceso
-```bash
-dokku ps:report flash
-```
-
-## Proxy
-```bash
-dokku proxy:report flash
-```
-
-## Config nginx
+### Ver config nginx
 ```bash
 dokku nginx:show-config flash | sed -n '1,220p'
 ```
 
-## Lo esperado
-- dominio configurado: `flash.mobappexpress.com`
-- 1 proceso `web.1` corriendo
-- proxy nginx activo
-- upstream apuntando al contenedor `flash`
-
 ---
 
-# 8. Verificar carga interna de caché
+## 8. Verificar carga interna de caché
 
 Entrar al contenedor:
 
 ```bash
 docker exec -it flash.web.1 sh
-```
-
-## Probar carga de caché y mapeo CP → zona
-```bash
 node
 ```
 
-Luego:
+En el REPL:
 
 ```js
 const svc = require('./src/services/googleSheetsService');
@@ -233,7 +247,7 @@ const svc = require('./src/services/googleSheetsService');
 })();
 ```
 
-## Resultado esperado
+Esperado:
 ```text
 1000 => CABA
 1406 => CABA
@@ -242,24 +256,19 @@ const svc = require('./src/services/googleSheetsService');
 1900 => 3ER CORDON
 ```
 
-Salir del REPL:
-```js
-.exit
-```
+Salir: `.exit`
 
 ---
 
-# 9. Verificar cálculo interno de tarifa
+## 9. Verificar cálculo interno de tarifa
 
 Dentro del contenedor:
 
 ```bash
-node -e "const svc=require('./src/services/googleSheetsService'); const calc=require('./src/services/flashCalculator'); (async()=>{ await svc.loadAllSheetDataIntoCache(); console.log(calc.calcularTarifa('1000',1000)); process.exit(0); })().catch(err=>{ console.error(err); process.exit(1); })"
+node -e "const svc=require('./src/services/googleSheetsService'); const calc=require('./src/services/flashCalculator'); (async()=>{ await svc.loadAllSheetDataIntoCache(); console.log(calc.calcularTarifa('1000',1000)); })();"
 ```
 
-## Resultado esperado
-Algo similar a:
-
+Esperado:
 ```text
 {
   titulo: 'MOBAPP FLASH CABA A DOMICILIO - 🔥 ENTREGA EN 24HS',
@@ -270,57 +279,32 @@ Algo similar a:
 
 ---
 
-# 10. Verificar endpoint local dentro del contenedor
+## 10. Probar endpoint público
 
-Esto prueba el endpoint Express sin depender de nginx/TLS:
-
+### Desde dentro del contenedor (saltea nginx/TLS)
 ```bash
-node -e "fetch('http://127.0.0.1:3000/api/shipping_rates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({destination:{zipcode:'1000'},items:[{grams:1000,quantity:1}]})}).then(r=>r.text()).then(console.log).catch(console.error)"
+node -e "fetch('http://127.0.0.1:3000/api/shipping_rates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({destination:{zipcode:'1000'},items:[{grams:1000,quantity:1}]})}).then(r=>r.json()).then(console.log)"
 ```
 
-## Resultado esperado
-Debe devolver algo como:
-
-```json
-{"rates":[{"name":"MOBAPP FLASH CABA A DOMICILIO - 🔥 ENTREGA EN 24HS","code":"MOBAPP_FLASH","price":8500,"price_merchant":8500,"currency":"ARS","type":"ship","min_delivery_date":"...","max_delivery_date":"...","phone_required":false,"reference":"flash-1000"}]}
-```
-
----
-
-# 11. Verificar endpoint público
-
-Desde el host:
-
+### Desde el host (vía nginx + TLS)
 ```bash
 curl -vk https://flash.mobappexpress.com/api/shipping_rates \
   -H 'Content-Type: application/json' \
   -d '{"destination":{"zipcode":"1000"},"items":[{"grams":1000,"quantity":1}]}'
 ```
 
-## Caso esperado
-HTTP 200 y JSON con tarifa.
+Esperado: HTTP 200 + JSON tipo:
+```json
+{"rates":[{"name":"MOBAPP FLASH CABA A DOMICILIO - 🔥 ENTREGA EN 24HS","code":"MOBAPP_FLASH","price":8500,"price_merchant":8500,"currency":"ARS","type":"ship","min_delivery_date":"...","max_delivery_date":"..."}]}
+```
 
-> Si `curl` muestra algo raro, validar con logs en vivo.
-
----
-
-# 12. Ver logs en vivo mientras se prueba el endpoint
-
-En una terminal:
+### Ver logs en vivo mientras se prueba
 
 ```bash
 dokku logs flash -t
 ```
 
-En otra terminal:
-
-```bash
-curl -sk https://flash.mobappexpress.com/api/shipping_rates \
-  -H 'Content-Type: application/json' \
-  -d '{"destination":{"zipcode":"1000"},"items":[{"grams":1000,"quantity":1}]}'
-```
-
-## Resultado esperado en logs
+Esperado:
 ```text
 [FLASH /shipping_rates] CP: 1000, Peso total: 1000g
 [FLASH /shipping_rates] Tarifa encontrada: MOBAPP FLASH CABA A DOMICILIO - 🔥 ENTREGA EN 24HS / $8500 / Zona: CABA
@@ -328,311 +312,160 @@ curl -sk https://flash.mobappexpress.com/api/shipping_rates \
 
 ---
 
-# 13. Casos de prueba recomendados
+## 11. Casos de prueba recomendados
 
-## CABA
+| Zona | CP | Esperado |
+|---|---|---|
+| CABA | `1000` | zona `CABA`, precio `8500` |
+| 1ER CORDON | `1602` | zona `1ER CORDON`, precio según tabla vigente |
+| 2DO CORDON | `1714` | zona `2DO CORDON`, precio según tabla vigente |
+| 3ER CORDON | `1900` | zona `3ER CORDON`, precio según tabla vigente |
+| No cubierto | `1704` | `{"rates":[]}` |
+
+Plantilla:
 ```bash
 curl -sk https://flash.mobappexpress.com/api/shipping_rates \
   -H 'Content-Type: application/json' \
-  -d '{"destination":{"zipcode":"1000"},"items":[{"grams":1000,"quantity":1}]}'
-```
-
-Esperado:
-- zona: `CABA`
-- precio: `8500`
-
----
-
-## 1ER CORDON
-```bash
-curl -sk https://flash.mobappexpress.com/api/shipping_rates \
-  -H 'Content-Type: application/json' \
-  -d '{"destination":{"zipcode":"1602"},"items":[{"grams":1000,"quantity":1}]}'
-```
-
-Esperado:
-- zona: `1ER CORDON`
-- precio según tabla vigente
-
----
-
-## 2DO CORDON
-```bash
-curl -sk https://flash.mobappexpress.com/api/shipping_rates \
-  -H 'Content-Type: application/json' \
-  -d '{"destination":{"zipcode":"1714"},"items":[{"grams":1000,"quantity":1}]}'
-```
-
-Esperado:
-- zona: `2DO CORDON`
-- precio según tabla vigente
-
----
-
-## 3ER CORDON
-```bash
-curl -sk https://flash.mobappexpress.com/api/shipping_rates \
-  -H 'Content-Type: application/json' \
-  -d '{"destination":{"zipcode":"1900"},"items":[{"grams":1000,"quantity":1}]}'
-```
-
-Esperado:
-- zona: `3ER CORDON`
-- precio según tabla vigente
-
----
-
-## CP no contemplado
-```bash
-curl -sk https://flash.mobappexpress.com/api/shipping_rates \
-  -H 'Content-Type: application/json' \
-  -d '{"destination":{"zipcode":"1704"},"items":[{"grams":1000,"quantity":1}]}'
-```
-
-Esperado:
-
-```json
-{"rates":[]}
+  -d '{"destination":{"zipcode":"<CP>"},"items":[{"grams":1000,"quantity":1}]}'
 ```
 
 ---
 
-# 14. Qué hacer si devuelve `rates: []`
+## 12. Qué hacer si devuelve `rates: []`
 
-## Paso 1
-Ver logs en vivo:
+1. **Ver logs en vivo:**
+   ```bash
+   dokku logs flash -t
+   ```
 
-```bash
-dokku logs flash -t
-```
+2. **Repetir request y revisar si aparece:**
+   - `CP: ...`
+   - `Peso total: ...g`
+   - `Tarifa encontrada: ...` ó `Sin tarifa para CP ...`
 
-## Paso 2
-Repetir request y revisar:
-- si llega `CP`
-- si llega `Peso total`
-- si aparece `Tarifa encontrada`
-- o `Sin tarifa para CP ...`
+3. **Probar cálculo directo dentro del contenedor** (ver sección 9).
 
-## Paso 3
-Entrar al contenedor y probar cálculo directo:
-
-```bash
-docker exec -it flash.web.1 sh
-```
-
-```bash
-node -e "const svc=require('./src/services/googleSheetsService'); const calc=require('./src/services/flashCalculator'); (async()=>{ await svc.loadAllSheetDataIntoCache(); console.log(calc.calcularTarifa('1000',1000)); process.exit(0); })().catch(err=>{ console.error(err); process.exit(1); })"
-```
-
-## Paso 4
-Si se cambió la planilla, reiniciar la app:
-
-```bash
-dokku ps:restart flash
-```
+4. **Si cambiaste la planilla, reiniciar:**
+   ```bash
+   dokku ps:restart flash
+   ```
 
 ---
 
-# 15. Actualización / redeploy
+## 13. Troubleshooting
 
-## Si se hace push o deploy nuevo
-Después del deploy:
+### Síntoma: el dominio devuelve el certificado o contenido de OTRA app
+**Causa:** `dokku ports:report flash` está vacío o con puertos raros (ej. `https:3000:3000`).
+nginx termina escuchando en 3000 con SSL en vez de en 443, y el dominio cae en otro vhost.
 
-1. revisar logs:
+**Fix:**
 ```bash
-dokku logs flash -t
-```
-
-2. validar health:
-```bash
-curl -vk https://flash.mobappexpress.com/health
-```
-
-3. validar shipping:
-```bash
-curl -vk https://flash.mobappexpress.com/api/shipping_rates \
-  -H 'Content-Type: application/json' \
-  -d '{"destination":{"zipcode":"1000"},"items":[{"grams":1000,"quantity":1}]}'
-```
-
-4. verificar certificado:
-```bash
-dokku certs:report flash
-```
-
----
-
-# 16. Nota importante sobre caché
-
-Actualmente la app:
-
-- carga la caché al iniciar
-- no refresca automáticamente Google Sheets
-- necesita reinicio para tomar cambios de planilla
-
-## Comando para refrescar caché
-```bash
-dokku ps:restart flash
-```
-
----
-
-# 17. Recomendación operativa
-
-## Antes de instalar en Tiendanube
-Validar:
-- `health`
-- SSL
-- logs
-- cálculo interno
-- endpoint público
-- al menos 3 o 4 CP reales
-
-## Después de instalar en Tiendanube
-Hacer pruebas reales en checkout con:
-- CABA
-- 1ER CORDON
-- 2DO CORDON
-- 3ER CORDON
-- CP no cubierto
-
----
-
-# 18. Estado esperado para considerar OK
-
-Se puede considerar la app lista si se cumple todo esto:
-
-- `dokku ps:report flash` muestra `running`
-- `/health` responde `OK`
-- `dokku certs:report flash` muestra cert válido
-- logs muestran carga correcta de hojas
-- `calcularTarifa('1000',1000)` devuelve tarifa
-- `/api/shipping_rates` devuelve JSON con `rates`
-- Tiendanube recibe cotización correctamente
-
----
-
-# 19. Comandos útiles resumidos
-
-## Reiniciar app
-```bash
-dokku ps:restart flash
-```
-
-## Ver logs
-```bash
-dokku logs flash -t
-```
-
-## Ver dominio
-```bash
-dokku domains:report flash
-```
-
-## Ver proceso
-```bash
-dokku ps:report flash
-```
-
-## Ver proxy
-```bash
-dokku proxy:report flash
-```
-
-## Ver SSL
-```bash
-dokku certs:report flash
-```
-
-## Health
-```bash
-curl -vk https://flash.mobappexpress.com/health
-```
-
-## Shipping test
-```bash
-curl -vk https://flash.mobappexpress.com/api/shipping_rates \
-  -H 'Content-Type: application/json' \
-  -d '{"destination":{"zipcode":"1000"},"items":[{"grams":1000,"quantity":1}]}'
-```
-
----
-
-# 20. Observación final
-
-Si se actualiza la planilla y no se ve reflejado el cambio, recordar:
-
-```bash
-dokku ps:restart flash
-```
-
-porque la caché no se refresca automáticamente.
-
-# Deployment de MOBAPP FLASH en Dokku
-
-## Configuración inicial del servidor (una sola vez por app)
-
-```bash
-# 1. Crear la app
-dokku apps:create flash
-
-# 2. Configurar dominio
-dokku domains:add flash flash.mobappexpress.com
-
-# 3. ⚠️ IMPORTANTE: configurar puertos correctamente
-#    Sin esto, nginx escucha en el puerto 3000 con SSL en vez de 443,
-#    y el dominio cae en otro vhost por defecto.
 dokku ports:add flash http:80:3000 https:443:3000
-
-# 4. Variables de entorno (ajustar valores)
-dokku config:set flash \
-  APP_ID=32545 \
-  CLIENT_SECRET=xxxxx \
-  MODALIDAD=flash \
-  GOOGLE_SHEET_ID=xxxxx \
-  SESSION_SECRET=xxxxx \
-  PUBLIC_API_URL=https://flash.mobappexpress.com
-
-# 5. Plugin de Redis (para sesiones)
-dokku redis:create flash-sessions
-dokku redis:link flash-sessions flash
-
-# 6. Certificado SSL Let's Encrypt
-dokku letsencrypt:set --global email tu-email@dominio.com
-dokku letsencrypt:enable flash
-dokku letsencrypt:cron-job --add
-
-# 7. Regenerar nginx (por las dudas)
 dokku proxy:build-config flash
 systemctl reload nginx
 ```
 
-## Verificación post-deploy
+### Síntoma: 401 "Invalid access token" al instalar la app en una tienda
+**Causa:** La API REST de Tienda Nube **NO usa el header HTTP estándar `Authorization`**. Usa un header propietario llamado **`Authentication`** (sin la "or").
 
-```bash
-dokku ports:report flash        # Debe mostrar: http:80:3000 https:443:3000
-dokku domains:report flash      # Debe mostrar: flash.mobappexpress.com
-curl -ksI https://flash.mobappexpress.com/install | grep -i location
-# Debe mostrar: location: https://www.tiendanube.com/apps/32545/authorize?...
-```
-
-## Deploy de cambios desde GitHub
-
-```bash
-# En tu PC (una sola vez):
-git remote add dokku dokku@147.79.86.6:flash
-
-# Cada vez que querés deployar:
-git checkout main
-git pull origin main
-git push dokku main
-```
-
-## Troubleshooting común
-
-### Síntoma: el dominio devuelve el certificado/contenido de otra app
-Probablemente `dokku ports:report flash` está vacío o mal. Reaplicar paso 3.
-
-### Síntoma: 401 "Invalid access token" al instalar
-La API de Tienda Nube usa el header `Authentication` (no `Authorization`).
 Ver: https://dev.tiendanube.com/docs/applications/authentication
+
+**Fix:** En `tiendanube-app/src/services/tiendaNubeService.js`, los headers deben ser:
+```js
+const headers = {
+  Authentication: `bearer ${accessToken}`,  // ✅ Authentication, no Authorization
+  'Content-Type': 'application/json',
+  'User-Agent': `TiendaNubeShippingApp/${process.env.APP_ID}`,
+};
+```
+
+### Síntoma: la sesión OAuth se pierde entre `/install` y `/oauth_callback`
+**Causa:** `express-session` con `saveUninitialized: true` y/o sin un store persistente puede perder el `state` CSRF si el contenedor se reinicia o entre instancias.
+
+**Fix:** Usar `saveUninitialized: false` y el plugin de Redis linkeado (`dokku redis:link flash-sessions flash`) como store de sesiones (`connect-redis`).
+
+### Síntoma: cambié precios en la planilla y no se reflejan
+**Causa:** La app cachea Google Sheets al arrancar y no refresca automáticamente.
+
+**Fix:**
+```bash
+dokku ps:restart flash
+```
+
+---
+
+## 14. Notas importantes sobre actualización de tarifas
+
+| Plataforma | Mecanismo | Refresh |
+|---|---|---|
+| Tienda Nube | Service account → Sheet directo | `dokku ps:restart flash` |
+| WooCommerce | URLs CSV públicas + transients WP | Borrar transients o esperar 1 día |
+
+> Si rotás credenciales o cambiás el `GOOGLE_SHEET_ID`, hay que actualizar:
+> - `dokku config:set flash GCP_CREDENTIALS_JSON=...`
+> - `dokku config:set flash GOOGLE_SHEET_ID=...`
+> - reiniciar la app
+
+---
+
+## 15. Estado esperado para considerar OK
+
+Antes de instalar en una tienda real, validar TODOS estos puntos:
+
+- [ ] `dokku ps:report flash` muestra `running`
+- [ ] `dokku ports:report flash` muestra `http:80:3000 https:443:3000`
+- [ ] `dokku certs:report flash` muestra cert válido para `flash.mobappexpress.com`
+- [ ] `curl https://flash.mobappexpress.com/health` devuelve `OK`
+- [ ] Logs de arranque muestran "Hoja CP cargada" y "Hoja TARIFA cargada"
+- [ ] `curl https://flash.mobappexpress.com/install` redirige a `client_id=32545` y `redirect_uri=https%3A%2F%2Fflash.mobappexpress.com%2Foauth_callback`
+- [ ] `/api/shipping_rates` devuelve `rates` correctos para CABA, 1°, 2° y 3° cordón
+- [ ] Instalación OAuth completa termina con "Shipping Carrier registrado exitosamente"
+
+Después de instalar en Tienda Nube:
+- [ ] El método "MOBAPP Flash - Última Milla" aparece en Configuración → Métodos de envío
+- [ ] Checkout simulado con CP real devuelve tarifa correcta
+
+---
+
+## 16. Comandos útiles resumidos
+
+```bash
+# App
+dokku ps:restart flash                 # Reiniciar (refresca caché Sheets)
+dokku ps:report flash                  # Estado del proceso
+dokku config:show flash                # Ver env vars
+dokku logs flash -t                    # Logs en vivo
+dokku logs flash --num 100             # Últimas 100 líneas
+
+# Red / SSL
+dokku domains:report flash             # Ver dominios
+dokku ports:report flash               # Ver mapeo de puertos
+dokku proxy:report flash               # Ver config proxy
+dokku certs:report flash               # Ver estado SSL
+dokku letsencrypt:list                 # Ver certs Let's Encrypt
+dokku nginx:show-config flash          # Ver nginx.conf generado
+
+# Health & shipping
+curl -vk https://flash.mobappexpress.com/health
+
+curl -sk https://flash.mobappexpress.com/api/shipping_rates \
+  -H 'Content-Type: application/json' \
+  -d '{"destination":{"zipcode":"1000"},"items":[{"grams":1000,"quantity":1}]}'
+
+# Verificar OAuth redirect
+curl -ksI https://flash.mobappexpress.com/install | grep -i location
+
+# Entrar al contenedor
+docker exec -it flash.web.1 sh
+```
+
+---
+
+## 📝 Historial de problemas resueltos
+
+| Fecha | Problema | Solución |
+|---|---|---|
+| 2026-05-26 | `client_id` y `redirect_uri` de DOM hardcodeados en código FLASH | Refactor para usar env vars (`APP_ID`, `PUBLIC_API_URL`) |
+| 2026-05-26 | Sesión OAuth se perdía entre `/install` y `/oauth_callback` | `saveUninitialized: false` + Redis session store |
+| 2026-05-26 | Dokku con puertos mal: `https:3000:3000` (cert de DOM en flash) | `dokku ports:add flash http:80:3000 https:443:3000` |
+| 2026-05-26 | API Tienda Nube devolvía 401 con token válido | Header `Authentication` (no `Authorization`) |
